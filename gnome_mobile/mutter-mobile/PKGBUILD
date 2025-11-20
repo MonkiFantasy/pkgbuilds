@@ -1,121 +1,166 @@
-# Maintainer: raihan2000 <raihan1999ahamed@gmail.com>
+# Maintainer: Raihan Ahamed (raihan2000) <raihan1999ahamed@gmail.com>
 # Contributor: Jan Alexander Steffens (heftig) <heftig@archlinux.org>
+# Contributor: Fabian Bornschein <fabiscafe@archlinux.org>
 # Contributor: Ionut Biru <ibiru@archlinux.org>
 # Contributor: Michael Kanis <mkanis_at_gmx_dot_de>
 _mode=host
-pkgname=mutter-mobile
-pkgdesc="A window manager for GNOME"
-pkgver=45.rc.r88.g0f08f5a
-pkgrel=1
-_arches=specific
-arch=(
-    any
+_crossdirect=true
+pkgbase=mutter-mobile
+pkgname=(
+    mutter-mobile
+    mutter-mobile-docs
 )
-license=(GPL)
-url=https://gitlab.gnome.org/GNOME/mutter
+pkgdesc="Window manager and compositor for GNOME"
+pkgver=48.r0.g7cb1e9b
+pkgrel=1
+_arches=all
+arch=(
+    x86_64
+    armv7h
+    aarch64
+)
+license=(GPL-2.0-or-later)
+url="https://gitlab.gnome.org/verdre/mutter-mobile"
 depends=(
+    at-spi2-core
+    cairo
     colord
     dconf
+    egl-wayland
+    fontconfig
+    fribidi
+    gcc-libs
+    gdk-pixbuf2
+    glib2
+    glibc
     gnome-desktop-4
-    gnome-settings-daemon
+    gnome-settings-daemon-mobile
     graphene
     gsettings-desktop-schemas
-    iio-sensor-proxy
+    gtk4
+    harfbuzz
+    "iio-sensor-proxy>=3.6"
     lcms2
     libcanberra
+    libcolord
+    libdisplay-info
+    libdrm
     libei
+    libgirepository
+    libglvnd
     libgudev
+    libice
     libinput
+    libpipewire
     libsm
     libsysprof-capture
+    libwacom
+    libx11
+    libxau
+    libxcb
+    libxcomposite
+    libxcursor
+    libxdamage
+    libxext
+    libxfixes
+    libxi
+    libxinerama
+    libxkbcommon
     libxkbcommon-x11
     libxkbfile
+    libxrandr
+    libxtst
+    mesa
+    pango
     pipewire
+    python
     startup-notification
+    systemd-libs
+    wayland
     xorg-xwayland
-    pixman-kupfer
+    pixman
 )
 makedepends=(
-    egl-wayland
     gi-docgen
     git
+    glib2-devel
     gobject-introspection
-    gtk3
     meson
     sysprof
     wayland-protocols
-    xorg-server
-    xorg-server-xvfb
+    python-argcomplete
+    python-docutils  # for rst2man
 )
-checkdepends=(
-    gnome-session
-    python-dbusmock
-    wireplumber
-    zenity
+_commit=7cb1e9bc53bd98532bd9a9d00ddcb613cd3774af # tags^48.mobile.0
+_pcver_commit=f338ed1c2e2a41374a900d4dfe0beded0369bc55
+source=(
+    "git+https://gitlab.gnome.org/verdre/mutter-mobile.git#commit=$_commit"
+    https://gitlab.postmarketos.org/postmarketOS/pmaports/-/raw/$_pcver_commit/temp/mutter-mobile/pcver.patch
+    https://gitlab.postmarketos.org/postmarketOS/pmaports/-/raw/$_pcver_commit/temp/mutter-mobile/fix-freeze.patch
 )
-options=(!debug)
-_commit=0f08f5aba4c9b5ac34b2d5711182d50b719d838e  # mobile-shell
-source=("git+https://gitlab.gnome.org/verdre/mobile-mutter.git#commit=$_commit")
-sha256sums=(SKIP)
+sha256sums=(
+    47455e3f33eb13fb1276a943747b1169cec915259fe4b5347b8d7b38b09a0d1e
+    6c124048a4a58ac1ea13190a8fd8b12773950a20d60c9ff44343da6f35ae1bf7
+    e1075a94c435644c71c238cdc34a833c3545e176c99328e6bcd25688e9376b5f
+)
 
 pkgver() {
-    cd mobile-mutter
-
-    _version_major="45.rc"
-    _hash=$(git describe --always --long --abbrev=7 | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g')
-    _target=$(git log --grep="Bump version to $_version_major" --pretty=format:"%h")
-    _count=$(git rev-list "$_target"..HEAD --count)
-
-    echo "$_version_major.r$_count.g$_hash"
+    cd $pkgbase
+    git describe --long --tags --abbrev=7 "$_commit" | sed -E 's/^([0-9]+)\.mobile\.[0-9]+-([0-9]+)-g([0-9a-f]+)/\1.r\2.g\3/'
 }
 
 prepare() {
-    cd mobile-mutter
+    cd $pkgbase
+
+    git apply -3 "$srcdir"/pcver.patch
+    # Inject gvdb
+    export MESON_PACKAGE_CACHE_DIR="$srcdir"
+    meson subprojects download gvdb
 }
 
 build() {
     local meson_options=(
-        -D docs=true
-        -D egl_device=true
-        -D installed_tests=false
-        -D wayland_eglstream=true
+      -D docs=true
+      -D egl_device=true
+      -D installed_tests=false
+      -D tests=disabled
+      -D wayland_eglstream=true
     )
 
     CFLAGS="${CFLAGS/-O2/-O3} -fno-semantic-interposition"
     LDFLAGS+=" -Wl,-Bsymbolic-functions"
 
-    arch-meson mobile-mutter build "${meson_options[@]}"
+    arch-meson mutter-mobile build "${meson_options[@]}"
     meson compile -C build
 }
-
-_check() (
-    XDG_RUNTIME_DIR="$PWD/rdir" GSETTINGS_SCHEMA_DIR="$PWD/build/data"
-    mkdir -p -m 700 "$XDG_RUNTIME_DIR"
-    glib-compile-schemas "GSETTINGS_SCHEMA_DIR"
-
-    NO_AT_BRIDGE=1 GTK_A11Y=none
-    MUTTER_DEBUG_DUMMY_MODE_SPECS="800x600@10.0"
-
-    xvfb-run -s '-nolisten local +iglx -noreset' \
-        mutter/src/tests/meta-dbus-runner.py --launch=pipewire --launch=wireplumber \
-        meson test -C build --print-errorlogs -t 5 --setup plain
-)
 
 _pick() {
     local p="$1" f d; shift
     for f; do
-        d="$srcdir/$p/${f#$pkgdir/}"
-        mkdir -p "$(dirname "$d")"
-        mv "$f" "$d"
-        rmdir -p --ignore-fail-on-non-empty "$(dirname "$f")"
+      d="$srcdir/$p/${f#$pkgdir/}"
+      mkdir -p "$(dirname "$d")"
+      mv "$f" "$d"
+      rmdir -p --ignore-fail-on-non-empty "$(dirname "$f")"
     done
 }
 
 package_mutter-mobile() {
-    provides=(libmutter-13.so mutter=$pkgver)
     conflicts=(mutter)
+    provides=(libmutter-16.so mutter=$pkgver)
+    optdepends=('bash-completion: Bash completions for gdctl')
 
     meson install -C build --destdir "$pkgdir"
 
     _pick docs "$pkgdir"/usr/share/mutter-*/doc
 }
+
+package_mutter-mobile-docs() {
+    conflicts=(mutter-mobile-docs)
+    provides=(mutter-mobile-docs=$pkgver)
+    pkgdesc+=" (documentation)"
+    depends=()
+
+    mv docs/* "$pkgdir"
+}
+
+# vim:set sw=2 sts=-1 et:
